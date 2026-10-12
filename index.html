@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mimi · Ear Translator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 한 손 조작용 단일 컬럼. 언어 선택 → 두 개의 큰 모드 버튼 → 번역 결과 */
+:root {
+  /* 한 가지 룩: 검은 우주 + 빛나는 지구 (밝은/어두운 모드 공통) */
+  --bg: #000000;
+  --on-bg: #f2f5f7;          /* 배경 위에 바로 놓이는 글자 */
+  --on-bg-muted: #8d99a6;
+  /* 지구본 */
+  --ocean: #0b2443;
+  --ocean-deep: #010409;
+  --land-dot: #bfefff;       /* 육지 점 입자 */
+  --land-dot-warm: #ffd2a0;  /* 도시 불빛처럼 따뜻한 점 */
+  --land-fill: rgba(120, 190, 255, 0.07);
+  --grid: rgba(140, 190, 255, 0.07);
+  --atmo: rgba(80, 160, 255, 0.55);   /* 대기 빛 */
+  --route-line: #ffcf7a;
+  --pin-from: #7fe3ff;
+  --pin-to: #ffb27a;
+  --plane: #ffffff;
+  /* 카드 (검은 유리) */
+  --surface: rgba(14, 18, 26, 0.58);
+  --fg: #f2f5f7;
+  --muted: #95a1ad;
+  --line: rgba(255, 255, 255, 0.10);
+  --listen: #5fe0cc;      /* 듣기: 상대 → 내 귀 */
+  --listen-soft: rgba(40, 150, 140, 0.20);
+  --speak: #ffb27a;       /* 말하기: 나 → 상대 */
+  --speak-soft: rgba(255, 150, 80, 0.15);
+  --live: #ff6b78;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+html { min-height: 100%; background: var(--bg); }
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+/* 지구본: 화면 전체 뒤에 깔리고, 위쪽 창에서 드래그·확대한다 */
+.globe { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; cursor: grab; touch-action: none; opacity: 0.9; transition: opacity 0.3s; }
+.globe.dragging { cursor: grabbing; }
+.globe-window {
+  height: clamp(124px, 18vh, 190px); display: flex; justify-content: space-between; align-items: flex-end; gap: 8px;
+  font-family: var(--font-mono); font-size: 0.7rem; color: var(--on-bg-muted);
+}
+.globe-window .route-label { color: var(--on-bg); letter-spacing: 0.04em; }
+.globe-window .hint { transition: opacity 0.8s; }
+.globe-window .hint.faded { opacity: 0; }
+.globe-window .hint-touch { display: none; }
+@media (pointer: coarse) { .globe-window .hint-mouse { display: none; } .globe-window .hint-touch { display: inline; } }
+/* 지구본이 카드 뒤로 비치도록 */
+.mode, .live, select, .manual input[type="text"], .manual button { -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2); }
+.mode, .live { border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+select option { background: #0e121a; color: var(--fg); }
+.wrap {
+  pointer-events: none; position: relative; z-index: 1; max-width: 560px; margin: 0 auto;
+  padding-inline: 16px; padding-block: 16px 20px;
+  min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; gap: 12px;
+}
+
+.wrap > * { pointer-events: auto; }
+.wrap > .globe-window { pointer-events: none; }
+header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+h1 { font-size: 1.45rem; font-weight: 500; margin: 0; letter-spacing: 0.01em; color: var(--on-bg); }
+/* 지구본 위에 바로 놓인 글자는 밝은 육지 위에서도 읽히도록 그림자를 준다 */
+h1, label.field, .globe-window { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 10px rgba(0, 0, 0, 0.7); }
+select { text-shadow: none; }
+h1 small { font-size: 0.75rem; font-weight: 500; color: var(--on-bg-muted); }
+
+.notice { background: var(--speak-soft); color: var(--fg); padding: 10px 14px; border-radius: 10px; font-size: 0.88rem; }
+
+.settings { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+label.field { display: grid; gap: 4px; font-size: 0.78rem; color: var(--on-bg-muted); }
+select {
+  font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; width: 100%; min-width: 0;
+}
+select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid var(--listen); outline-offset: 2px; }
+
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mode {
+  font: inherit; border: 1px solid transparent; border-radius: 18px; padding: 16px 12px; cursor: pointer;
+  display: grid; gap: 4px; justify-items: center; text-align: center; min-height: 84px; align-content: center;
+}
+.mode:disabled { opacity: 0.45; cursor: not-allowed; }
+.mode b { font-size: 1.25rem; font-weight: 600; }
+.mode .route { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+.mode.listen { background: var(--listen-soft); color: var(--fg); }
+.mode.speak { background: var(--speak-soft); color: var(--fg); }
+.mode.listen.on { border-color: var(--listen); box-shadow: 0 0 0 1px var(--listen), 0 0 24px rgba(95, 224, 204, 0.25); }
+.mode.speak.on { border-color: var(--speak); box-shadow: 0 0 0 1px var(--speak), 0 0 24px rgba(255, 178, 122, 0.25); }
+.mode.listen b { color: var(--listen); }
+.mode.speak b { color: var(--speak); }
+.mode.on .dot { display: inline-block; }
+.dot { display: none; width: 9px; height: 9px; border-radius: 50%; background: var(--live); margin-right: 6px; animation: pulse 1.2s infinite; vertical-align: middle; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+.live {
+  flex: 1 1 auto; min-height: 132px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px;
+  display: flex; flex-direction: column; justify-content: center; gap: 8px;
+}
+.live .state { font-size: 0.75rem; color: var(--muted); font-family: var(--font-mono); margin-bottom: auto; }
+.live::after { content: ""; margin-top: auto; }   /* 상태는 카드 맨 위, 번역 내용은 남은 공간 가운데 */
+.live .heard { color: var(--muted); font-size: 0.95rem; overflow-wrap: anywhere; }
+.live .heard:empty, .live .note:empty { display: none; }
+.live .out { font-size: clamp(1.6rem, 6.5vw, 2.1rem); font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; text-wrap: balance; }
+.live .out:empty::before { content: "듣기나 말하기를 누르고 말해 보세요"; font-size: 1rem; font-weight: 400; color: var(--muted); }
+.live.show-partner .out { font-size: clamp(1.9rem, 8vw, 2.6rem); color: var(--speak); }
+.live .note { font-size: 0.8rem; color: var(--listen); overflow-wrap: anywhere; }
+
+.privacy { margin: -4px 0 0; text-align: center; text-wrap: balance; font-size: 0.68rem; color: var(--on-bg-muted); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
+.manual { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.manual input[type="text"] {
+  font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; width: 100%; min-width: 0;
+}
+.manual button {
+  font: inherit; border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  border-radius: 10px; padding: 10px 14px; cursor: pointer; white-space: nowrap;
+}
+
+@media (max-width: 300px) { .settings, .modes { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<canvas class="globe" id="globe" aria-hidden="true"></canvas>
+<main class="wrap">
+  <header>
+    <h1>Mimi <small>耳 · Ear Translator</small></h1>
+  </header>
+
+  <section class="globe-window" id="globeWindow" aria-label="지구본: 드래그해서 돌리고 스크롤로 확대">
+    <span class="route-label" id="globeRoute">ICN → NRT</span>
+    <span class="hint" id="globeHint"><span class="hint-mouse">드래그 회전 · 스크롤 확대 · 더블클릭 원위치</span><span class="hint-touch">밀어서 회전 · 두 손가락 확대</span></span>
+  </section>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <section class="settings">
+    <label class="field" for="myLang">내 언어
+      <select id="myLang"></select>
+    </label>
+    <label class="field" for="partnerLang">상대방 언어
+      <select id="partnerLang"></select>
+    </label>
+  </section>
+
+  <section class="live" id="live" aria-live="polite">
+    <div class="state" id="state">대기 중</div>
+    <div class="heard" id="heard"></div>
+    <div class="out" id="out"></div>
+    <div class="note" id="note"></div>
+  </section>
+
+  <section class="modes">
+    <button class="mode listen" id="btnListen" type="button">
+      <b><i class="dot"></i>듣기</b>
+      <span class="route" id="routeListen">日本語 → 한국어</span>
+    </button>
+    <button class="mode speak" id="btnSpeak" type="button">
+      <b><i class="dot"></i>말하기</b>
+      <span class="route" id="routeSpeak">한국어 → 日本語</span>
+    </button>
+  </section>
+
+  <form class="manual" id="manual">
+    <input type="text" id="manualText" placeholder="직접 입력 (언어 자동 감지)" autocomplete="off">
+    <button type="submit">번역</button>
+  </form>
+  <p class="privacy">입력·음성 문장은 번역 서비스(Google·MyMemory·Claude)로 전송됩니다</p>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="land.js"></script>
+<script>
+const LANGS = {
+  "ko":    { rec: "ko-KR", label: "한국어", name: "한국어" },
+  "ja":    { rec: "ja-JP", label: "日本語", name: "일본어" },
+  "en":    { rec: "en-US", label: "English", name: "영어" },
+  "zh-CN": { rec: "zh-CN", label: "中文", name: "중국어" },
+  "vi":    { rec: "vi-VN", label: "Tiếng Việt", name: "베트남어" },
+  "th":    { rec: "th-TH", label: "ภาษาไทย", name: "태국어" },
+  "es":    { rec: "es-ES", label: "Español", name: "스페인어" },
+  "fr":    { rec: "fr-FR", label: "Français", name: "프랑스어" },
+  "de":    { rec: "de-DE", label: "Deutsch", name: "독일어" },
+};
+const TTS_RATE = 1;     // 음성 속도 (1 = 보통, 낮을수록 느리게)
+const $ = (id) => document.getElementById(id);
+const els = {
+  my: $("myLang"), partner: $("partnerLang"), listen: $("btnListen"), speak: $("btnSpeak"),
+  state: $("state"), heard: $("heard"), out: $("out"), note: $("note"), live: $("live"),
+  notice: $("notice"), routeL: $("routeListen"), routeS: $("routeSpeak"),
+};
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+let mode = null;          // "listen" | "speak" | null
+let speaking = false;     // TTS 재생 중이면 마이크를 잠시 끔 (자기 목소리 재인식 방지)
+
+function showNotice(msg) { els.notice.textContent = msg; els.notice.hidden = false; }
+function partner() { return els.partner.value; }
+function my() { return els.my.value; }
+
+// 두 언어 선택지 채우기 (기본: 내 언어 한국어, 상대 일본어)
+for (const [code, l] of Object.entries(LANGS)) {
+  els.my.add(new Option(`${l.name} · ${l.label}`, code));
+  els.partner.add(new Option(`${l.name} · ${l.label}`, code));
+}
+els.my.value = "ko";
+els.partner.value = "ja";
+
+/* ---------- 지구본 ---------- */
+// 언어별 대표 공항 [코드, 경도, 위도] (출발 = 내 언어, 도착 = 상대 언어)
+const AIRPORT = {
+  ko: ["ICN", 126.45, 37.46], ja: ["NRT", 140.39, 35.77], en: ["JFK", -73.78, 40.64],
+  "zh-CN": ["PEK", 116.58, 40.08], vi: ["DAD", 108.2, 16.05], th: ["BKK", 100.75, 13.69],
+  es: ["MAD", -3.57, 40.47], fr: ["CDG", 2.55, 49.01], de: ["FRA", 8.57, 50.03],
+};
+const globe = (() => {
+  const canvas = $("globe");
+  if (!window.d3 || !window.MIMI_LAND) { canvas.hidden = true; return { setRoute() {} }; }   // 오프라인 등으로 못 불러오면 배경만
+  const ctx = canvas.getContext("2d");
+  const land = { type: "MultiPolygon", coordinates: window.MIMI_LAND };
+  const graticule = d3.geoGraticule10();
+  const projection = d3.geoOrthographic().clipAngle(90).precision(0.6);
+  const path = d3.geoPath(projection, ctx);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const PLANE = new Path2D("M10 0 L2 -1.5 L-3 -9 L-5.5 -9 L-2 -1.5 L-7 -1 L-9 -4 L-10.5 -4 L-9.5 0 L-10.5 4 L-9 4 L-7 1 L-2 1.5 L-5.5 9 L-3 9 L2 1.5 Z");
+  const OFFSET = 30;        // 비행기를 지구 중심보다 30° 위(= 위쪽 창 한가운데)에 보이게 한다
+  const RAD = Math.PI / 180;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const wrap180 = (d) => ((d + 540) % 360) - 180;
+
+  const colors = {};
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ["ocean", "ocean-deep", "land-dot", "land-dot-warm", "land-fill", "grid", "atmo", "route-line", "pin-from", "pin-to", "plane", "on-bg"])
+    colors[k] = cs.getPropertyValue("--" + k).trim();
+
+  // 육지를 점 입자로: 육지 모양을 작은 캔버스에 칠한 뒤, 고르게 퍼진 경위도 격자점 중 육지 위의 점만 남긴다
+  const dots = (() => {
+    const w = 1440, h = 720, off = document.createElement("canvas");
+    off.width = w; off.height = h;
+    const c = off.getContext("2d");
+    c.fillStyle = "#fff";
+    for (const poly of window.MIMI_LAND) {
+      c.beginPath();
+      for (const ring of poly) ring.forEach(([lon, lat], i) => {
+        const x = (lon + 180) / 360 * w, y = (90 - lat) / 180 * h;
+        if (i) c.lineTo(x, y); else c.moveTo(x, y);
+      });
+      c.fill("evenodd");
+    }
+    const px = c.getImageData(0, 0, w, h).data, out = [], STEP = 1.15;
+    for (let lat = -84; lat <= 84; lat += STEP) {
+      const n = Math.max(1, Math.round(360 * Math.cos(lat * RAD) / STEP));
+      for (let i = 0; i < n; i++) {
+        const lon = -180 + (i + 0.5) * 360 / n;
+        const x = Math.min(w - 1, Math.floor((lon + 180) / 360 * w)), y = Math.floor((90 - lat) / 180 * h);
+        if (px[(y * w + x) * 4 + 3] > 128) {
+          const r = Math.random();
+          const cl = Math.cos(lat * RAD);   // 지구 위 위치를 3차원 단위벡터로 미리 계산 (매 프레임 삼각함수를 줄임)
+          out.push({ x: cl * Math.cos(lon * RAD), y: cl * Math.sin(lon * RAD), z: Math.sin(lat * RAD),
+                     glow: 0.45 + 0.55 * Math.random(), warm: r < 0.06 });
+        }
+      }
+    }
+    return out;
+  })();
+
+  // 별: 화면 비율 좌표 + 크기·색·반짝임
+  const STAR_COLORS = ["255,255,255", "205,225,255", "255,220,190"];
+  // 밝은 별의 번지는 빛은 색마다 한 번만 그려 두고 복사해 쓴다 (매 프레임 그라디언트를 만들지 않음)
+  const STAR_GLOW = STAR_COLORS.map((c) => {
+    const sp = document.createElement("canvas");
+    sp.width = sp.height = 32;
+    const g2 = sp.getContext("2d"), g = g2.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g.addColorStop(0, `rgba(${c},0.5)`); g.addColorStop(1, `rgba(${c},0)`);
+    g2.fillStyle = g; g2.fillRect(0, 0, 32, 32);
+    return sp;
+  });
+  const stars = Array.from({ length: 420 }, () => ({
+    x: Math.random(), y: Math.random(), r: Math.random() ** 3 * 1.6 + 0.3,
+    ci: Math.random() < 0.7 ? 0 : Math.random() < 0.6 ? 1 : 2,
+    a: 0.25 + Math.random() * 0.75, ph: Math.random() * 6.28, sp: 0.4 + Math.random() * 1.6,
+  }));
+
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  }
+  resize(); addEventListener("resize", resize);
+  // 페이지가 스크롤될 때 터치로는 세로 밀기를 페이지 스크롤에 양보한다 (가로 밀기는 계속 지구 회전)
+  const pageScrolls = () => document.documentElement.scrollHeight > innerHeight + 1;
+  const syncTouch = () => { canvas.style.touchAction = pageScrolls() ? "pan-y" : "none"; };
+  addEventListener("resize", syncTouch); addEventListener("load", syncTouch); syncTouch();
+
+  let route = null;              // { from, to, codes, interp, ms }
+  let rot = null;                // 현재 회전 [λ, φ]
+  let manualRot = null, manualUntil = 0, zoom = 1, startT = performance.now();
+
+  function setRoute(a, b) {
+    const from = [a[1], a[2]], to = [b[1], b[2]];
+    const dist = d3.geoDistance(from, to);
+    route = { from, to, codes: [a[0], b[0]], same: dist === 0, interp: d3.geoInterpolate(from, to),
+              ms: 3500 + dist / RAD * 70 };   // 멀수록 오래 난다
+    startT = performance.now(); manualRot = null; manualUntil = 0;
+    if (!rot) rot = followTarget(0);
+    return Math.round(dist * 6371);   // 대권 거리(km)
+  }
+  function progress(now) {
+    if (reduce) return 0.5;
+    const t = ((now - startT) % (route.ms + 1500)) / route.ms;   // 도착 후 1.5초 머문다
+    return Math.min(1, t);
+  }
+  function followTarget(t) {
+    const [lon, lat] = route.interp(t);
+    return [-lon, OFFSET - lat];
+  }
+  const globeRadius = (win) => clamp(win.height * 1.6, 160, W * 0.75) * zoom;
+
+  function drawStars(now) {
+    // 지구를 돌리면 별도 살짝 따라 움직인다 (먼 배경의 시차)
+    const ox = rot[0] * 1.5, oy = rot[1] * 1.5;
+    for (const s of stars) {
+      const x = ((s.x * W + ox) % W + W) % W, y = ((s.y * H + oy) % H + H) % H;
+      const a = reduce ? s.a : s.a * (0.65 + 0.35 * Math.sin(now / 1000 * s.sp + s.ph));
+      if (s.r > 1.3) {   // 밝은 별은 번지는 빛
+        ctx.globalAlpha = a; ctx.drawImage(STAR_GLOW[s.ci], x - s.r * 5, y - s.r * 5, s.r * 10, s.r * 10); ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = `rgba(${STAR_COLORS[s.ci]},${a})`;
+      ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.283); ctx.fill();
+    }
+  }
+
+  function drawDots(now, cx, cy, R) {
+    // 화면 중심 방향(c)과 그 지점의 동쪽(e)·북쪽(n) 단위벡터로 바로 투영한다 (d3 정사영과 같은 결과)
+    const lc = -rot[0] * RAD, pc = -rot[1] * RAD;
+    const cosl = Math.cos(lc), sinl = Math.sin(lc), cosp = Math.cos(pc), sinp = Math.sin(pc);
+    const c0 = cosp * cosl, c1 = cosp * sinl, c2 = sinp;
+    const e0 = -sinl, e1 = cosl;
+    const n0 = -sinp * cosl, n1 = -sinp * sinl, n2 = cosp;
+    const size = clamp(R / 230, 0.9, 3.2);
+    const buckets = new Map();   // 색·밝기별로 모아 한 번에 칠한다
+    for (const d of dots) {
+      const z = d.x * c0 + d.y * c1 + d.z * c2;   // z > 0 이면 앞면
+      if (z <= 0.02) continue;
+      const x = cx + R * (d.x * e0 + d.y * e1), y = cy - R * (d.x * n0 + d.y * n1 + d.z * n2);
+      if (x < -4 || x > W + 4 || y < -4 || y > H + 4) continue;
+      let a = d.glow * (0.2 + 0.8 * z);   // 가장자리로 갈수록 어둡게
+      const key = (d.warm ? "w" : "c") + Math.min(5, Math.floor(a * 6));
+      let p = buckets.get(key);
+      if (!p) buckets.set(key, (p = new Path2D()));
+      p.rect(x - size / 2, y - size / 2, size, size);
+    }
+    for (const [key, p] of buckets) {
+      ctx.globalAlpha = (Number(key.slice(1)) + 0.5) / 6;
+      ctx.fillStyle = key[0] === "w" ? colors["land-dot-warm"] : colors["land-dot"];
+      ctx.fill(p);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // 배터리 절약: 마이크가 켜져 있으면 초당 20장, 휴대폰은 30장, 그 외 60장만 그린다
+  const coarse = matchMedia("(pointer: coarse)").matches;
+  let lastDraw = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const fps = mode ? 20 : coarse ? 30 : 60;
+    if (now - lastDraw < 1000 / fps - 2 || !route) return;
+    lastDraw = now;
+    const win = $("globeWindow").getBoundingClientRect();
+    const R = globeRadius(win);
+    const cx = win.left + win.width / 2, cy = win.top + win.height / 2 + R * Math.sin(OFFSET * RAD);
+    const t = route.same ? 0 : progress(now);
+
+    // 회전: 손으로 돌린 직후 4초는 그 자리, 그 뒤엔 비행기를 따라 부드럽게 돈다
+    const dragging = canvas.classList.contains("dragging");
+    const target = manualRot && (dragging || now < manualUntil) ? manualRot : followTarget(t);
+    if (dragging || reduce) rot = target.slice();
+    else { rot = [rot[0] + wrap180(target[0] - rot[0]) * 0.07, rot[1] + (target[1] - rot[1]) * 0.07]; }
+    if (!dragging && now >= manualUntil) manualRot = null;
+
+    projection.scale(R).translate([cx, cy]).rotate(rot);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    drawStars(now);
+
+    // 대기 빛 (바깥으로 번지는 푸른 테)
+    const halo = ctx.createRadialGradient(cx, cy, R * 0.98, cx, cy, R * 1.22);
+    halo.addColorStop(0, colors.atmo); halo.addColorStop(0.35, "rgba(60,130,255,0.12)"); halo.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, R * 1.22, 0, 6.283); ctx.fill();
+    // 바다 (빛을 받는 쪽은 밝은 남색, 반대편은 거의 검정)
+    const sea = ctx.createRadialGradient(cx - R * 0.4, cy - R * 0.5, R * 0.05, cx, cy, R * 1.02);
+    sea.addColorStop(0, colors.ocean); sea.addColorStop(1, colors["ocean-deep"]);
+    ctx.fillStyle = sea; ctx.beginPath(); path({ type: "Sphere" }); ctx.fill();
+    // 경위선과 아주 옅은 육지 바탕
+    ctx.beginPath(); path(graticule); ctx.strokeStyle = colors.grid; ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.beginPath(); path(land); ctx.fillStyle = colors["land-fill"]; ctx.fill();
+    // 반짝이는 육지 점
+    drawDots(now, cx, cy, R);
+    // 안쪽 테두리 빛 (구글 어스처럼 가장자리가 푸르게 빛남)
+    const rim = ctx.createRadialGradient(cx, cy, R * 0.72, cx, cy, R);
+    rim.addColorStop(0, "rgba(80,160,255,0)"); rim.addColorStop(1, "rgba(110,180,255,0.32)");
+    ctx.fillStyle = rim; ctx.beginPath(); path({ type: "Sphere" }); ctx.fill();
+
+    // 지구본 창 아래(카드 뒤)는 서서히 어둡게 해서 글자 뒤가 지저분하지 않게
+    const fadeTop = win.bottom - 8;
+    const veil = ctx.createLinearGradient(0, fadeTop, 0, fadeTop + 200);
+    veil.addColorStop(0, "rgba(0,0,0,0)"); veil.addColorStop(1, "rgba(0,0,0,0.88)");
+    ctx.fillStyle = veil; ctx.fillRect(0, fadeTop, W, H - fadeTop);
+
+    if (!route.same) {
+      const center = [-rot[0], -rot[1]];
+      const visible = (pt) => d3.geoDistance(pt, center) < Math.PI / 2 - 0.01;
+      ctx.lineCap = "round";
+      // 전체 항로(점선)
+      ctx.setLineDash([2, 6]); ctx.lineWidth = 1.4; ctx.strokeStyle = colors["route-line"]; ctx.globalAlpha = 0.65;
+      ctx.beginPath(); path({ type: "LineString", coordinates: [route.from, route.to] }); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      // 지나온 길: 빛나는 실선
+      if (t > 0.002) {
+        ctx.save(); ctx.shadowColor = colors["route-line"]; ctx.shadowBlur = 12; ctx.lineWidth = 2.4;
+        ctx.beginPath(); path({ type: "LineString", coordinates: [route.from, route.interp(t)] }); ctx.stroke();
+        ctx.restore();
+      }
+      // 공항 핀과 코드
+      ctx.font = "500 11px 'IBM Plex Mono', ui-monospace, monospace"; ctx.textAlign = "center";
+      [[route.from, colors["pin-from"], route.codes[0], 19], [route.to, colors["pin-to"], route.codes[1], -11]].forEach(([pt, color, code, dy]) => {
+        if (!visible(pt)) return;
+        const [x, y] = projection(pt);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, 14);
+        g.addColorStop(0, color); g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.globalAlpha = 0.45; ctx.fillStyle = g; ctx.fillRect(x - 14, y - 14, 28, 28); ctx.globalAlpha = 1;
+        ctx.beginPath(); ctx.arc(x, y, 3.6, 0, 6.283); ctx.fillStyle = color; ctx.fill();
+        ctx.lineWidth = 1.2; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.strokeText(code, x, y + dy);
+        ctx.fillStyle = colors["on-bg"]; ctx.fillText(code, x, y + dy);
+      });
+      // 비행기 (진행 방향으로 기울이고 빛나게)
+      const here = route.interp(t);
+      if (visible(here)) {
+        const [x, y] = projection(here);
+        const ahead = projection(route.interp(Math.min(1, t + 0.01)));
+        const behind = projection(route.interp(Math.max(0, t - 0.01)));
+        const angle = Math.atan2(ahead[1] - behind[1], ahead[0] - behind[0]);
+        const fade = reduce ? 1 : Math.min(1, t / 0.05 + 0.15, (1 - t) / 0.05 + 0.15);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(angle); ctx.scale(1.15, 1.15);
+        ctx.globalAlpha = fade; ctx.shadowColor = colors["route-line"]; ctx.shadowBlur = 14;
+        ctx.fillStyle = colors.plane; ctx.fill(PLANE); ctx.restore();
+      }
+    }
+  }
+  requestAnimationFrame(frame);
+
+  // ---- 마우스·터치 조작: 드래그 회전, 휠/두 손가락 확대, 더블클릭 원위치 ----
+  const pointers = new Map();
+  let pinch = null;
+  const spread = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    manualRot = rot.slice(); canvas.classList.add("dragging");
+    if (pointers.size === 2) pinch = { d: spread(), zoom };
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const prev = pointers.get(e.pointerId);
+    if (!prev) return;
+    const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) {
+      const win = $("globeWindow").getBoundingClientRect();
+      const k = 57 / globeRadius(win);   // 손가락 아래 땅이 따라오는 속도
+      manualRot = [manualRot[0] + dx * k, clamp(manualRot[1] - dy * k, -89, 89)];
+    } else if (pinch) {
+      zoom = clamp(pinch.zoom * spread() / pinch.d, 0.4, 5);
+    }
+  });
+  const release = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 0) { canvas.classList.remove("dragging"); manualUntil = performance.now() + 4000; }
+  };
+  canvas.addEventListener("pointerup", release);
+  canvas.addEventListener("pointercancel", release);
+  canvas.addEventListener("wheel", (e) => {
+    // 페이지가 스크롤되는 작은 화면에서는 지구본 창 높이에서만 확대하고, 나머지는 페이지 스크롤로 둔다
+    const win = $("globeWindow").getBoundingClientRect();
+    if (pageScrolls() && (e.clientY < win.top || e.clientY > win.bottom)) return;
+    e.preventDefault();
+    zoom = clamp(zoom * Math.exp(-e.deltaY * 0.0015), 0.4, 5);
+  }, { passive: false });
+  canvas.addEventListener("dblclick", () => { zoom = 1; manualRot = null; manualUntil = 0; });
+
+  return { setRoute };
+})();
+function updateMap() {
+  const from = AIRPORT[my()], to = AIRPORT[partner()];
+  const km = globe.setRoute(from, to);
+  $("globeRoute").textContent = my() === partner()
+    ? from[0]
+    : `${from[0]} → ${to[0]} · ${(km ?? 0).toLocaleString()} km`;
+}
+// 조작 안내는 처음 5초만 보여주고, 지구본을 만지면 바로 숨긴다
+setTimeout(() => $("globeHint").classList.add("faded"), 5000);
+$("globe").addEventListener("pointerdown", () => $("globeHint").classList.add("faded"), { once: true });
+
+function updateRoutes() {
+  updateMap();
+  const m = LANGS[my()].label, p = LANGS[partner()].label;
+  els.routeL.textContent = `${p} → ${m}`;
+  els.routeS.textContent = `${m} → ${p}`;
+  const same = my() === partner();
+  els.listen.disabled = els.speak.disabled = same;
+  if (same) showNotice("내 언어와 상대방 언어가 같습니다. 서로 다른 언어를 골라 주세요.");
+  else if (SR) els.notice.hidden = true;
+}
+function onLangChange() {
+  convo.length = 0;
+  updateRoutes();
+  if (my() === partner()) stop();   // 버튼이 꺼지는 상태이므로 마이크도 끈다
+  else if (mode) start(mode);
+}
+els.my.addEventListener("change", onLangChange);
+els.partner.addEventListener("change", onLangChange);
+updateRoutes();
+if (!SR) showNotice("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome으로 열어 주세요.");
+
+// 실시간 미리보기 (이 컴퓨터에서 열었을 때만): 파일을 고치면 1초 안에 스스로 새로고침
+// 휴대폰(터널 주소)에서는 대화 중에 화면이 바뀌지 않도록 동작하지 않는다
+if (["localhost", "127.0.0.1"].includes(location.hostname)) {
+  let version = null;
+  setInterval(async () => {
+    try {
+      const v = (await (await fetch("/__version", { cache: "no-store" })).json()).version;
+      if (version === null) version = v;
+      else if (v !== version && !mode) location.reload();   // 마이크가 켜져 있으면 끈 뒤에 새로고침
+    } catch (e) { /* 서버가 잠시 꺼져 있으면 다음에 다시 확인 */ }
+  }, 1000);
+}
+
+/* ---------- 번역 ---------- */
+async function fetchJson(url, ms = 6000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+// 1순위: 로컬 서버의 Claude 문맥 번역 / 2순위: 무료 기본 번역 엔진
+// 최근 대화를 함께 보내 Claude가 상황(장소, 상대, 말투)을 판단하게 한다
+const convo = [];        // [{who: "me"|"partner", text, translation}]
+// 번역 서버가 없거나(정적 배포) 키가 없으면 매번 실패를 기다리지 않도록 한동안 건너뛴다
+let claudeRetryAt = 0;
+async function translateWithClaude(text, from, to) {
+  if (Date.now() < claudeRetryAt) return null;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch("/api/translate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, from, to, me: my(), history: convo }), signal: ctl.signal,
+    });
+    if (r.ok) {
+      const j = await r.json();
+      return j.text ? { text: j.text, engine: "Claude 문맥 번역", note: j.note || "" } : null;
+    }
+    // 404·405·501: 번역 서버가 없는 곳 → 이번 접속 동안 건너뜀 / 503: 키 없음 → 5분 / 그 밖 → 30초
+    claudeRetryAt = Date.now() + ([404, 405, 501].includes(r.status) ? Infinity : r.status === 503 ? 300000 : 30000);
+  } catch (e) {
+    claudeRetryAt = Date.now() + 30000;
+  } finally { clearTimeout(t); }
+  return null;
+}
+// 결과를 { text, engine, note } 로 돌려준다 (전역 변수에 담지 않아 동시에 여러 문장이 와도 섞이지 않음)
+async function translate(text, from, to) {
+  const claude = await translateWithClaude(text, from, to);
+  if (claude) return claude;
+  try {
+    const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+    const j = await fetchJson(u);
+    const out = j[0].map((s) => s[0]).join("");
+    if (out) return { text: out, engine: "기본 번역", note: "" };
+  } catch (e) { /* 대체 엔진으로 */ }
+  const u2 = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
+  const j2 = await fetchJson(u2);
+  return { text: j2.responseData.translatedText, engine: "기본 번역", note: "" };
+}
+
+/* ---------- 음성 출력 ---------- */
+function pickVoice(lang) {
+  const vs = speechSynthesis.getVoices();
+  return vs.find((v) => v.lang === lang) || vs.find((v) => v.lang.startsWith(lang.slice(0, 2)));
+}
+// 번역 음성은 앞 문장을 끊지 않고 차례로 재생한다. 남은 음성이 0개가 될 때만 마이크를 다시 켠다
+let speechPending = 0;
+let speechGen = 0;        // stop() 할 때마다 바뀜: 멈추기 전에 넣은 음성의 끝 신호는 무시
+function speak(text, lang) {
+  if (!("speechSynthesis" in window)) return Promise.resolve();
+  const gen = speechGen;
+  speechPending++;
+  speaking = true;
+  if (rec) try { rec.abort(); } catch (e) {}   // 재생 중에는 마이크를 꺼서 기기 소리를 다시 인식하지 않게
+  return new Promise((resolve) => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    u.rate = TTS_RATE;
+    const v = pickVoice(lang); if (v) u.voice = v;
+    // 일부 브라우저는 끝 신호를 빠뜨리므로, 재생이 시작되고 충분히 지나면 끝난 것으로 본다
+    let guard = setTimeout(resolve, 60000);
+    u.onstart = () => { clearTimeout(guard); guard = setTimeout(resolve, 3000 + text.length * 250 / TTS_RATE); };
+    u.onend = u.onerror = () => { clearTimeout(guard); resolve(); };
+    speechSynthesis.speak(u);
+  }).finally(() => {
+    if (gen !== speechGen) return;
+    speechPending = Math.max(0, speechPending - 1);
+    if (speechPending > 0) return;
+    speaking = false;
+    if (mode) { resumeRec(); els.state.textContent = stateLabel(); }
+  });
+}
+
+/* ---------- 파이프라인: 인식된 문장 → 번역 → 출력 ---------- */
+// 번역은 바로 시작하되(여러 문장이면 동시에), 화면 표시와 음성은 들어온 순서대로 한다
+let outputChain = Promise.resolve();
+function pipeline(text, dir) {
+  const p = partner(), me = my();
+  if (p === me) return Promise.resolve();
+  const from = dir === "listen" ? p : me;
+  const to = dir === "listen" ? me : p;
+  const job = translate(text, from, to);
+  job.catch(() => {});   // 차례를 기다리는 동안 '처리되지 않은 오류' 경고가 뜨지 않게
+  outputChain = outputChain.then(async () => {
+    els.heard.textContent = text;
+    els.out.textContent = "번역 중…";
+    els.note.textContent = "";
+    els.live.classList.toggle("show-partner", dir === "speak");
+    let r;
+    try { r = await job; }
+    catch (e) { els.out.textContent = "번역 실패: 네트워크 연결을 확인하세요."; return; }
+    els.out.textContent = r.text;
+    els.note.textContent = r.note;
+    convo.push({ who: dir === "listen" ? "partner" : "me", text, translation: r.text });
+    if (convo.length > 8) convo.shift();
+    els.state.textContent = `${r.engine} · 음성 재생 중`;
+    speak(r.text, LANGS[to].rec);   // 기다리지 않음: 음성은 재생 순서대로 이어서 나온다
+  });
+  return outputChain;
+}
+
+/* ---------- 음성 인식 ---------- */
+let recFailures = 0;      // 연속 연결 오류 횟수 (다시 켜는 간격을 늘리는 데 사용)
+let reconnecting = false; // "다시 연결하는 중" 안내를 띄웠는지
+function stateLabel() {
+  const lang = mode === "listen" ? partner() : my();
+  return `● 듣는 중 · ${LANGS[lang].label} 인식`;
+}
+// 마이크 다시 켜기: 연속 오류가 있으면 1초, 2초, 4초… (최대 10초) 기다렸다가 켠다
+function resumeRec() {
+  const r = rec;
+  if (!mode || speaking || !r) return;
+  const delay = recFailures ? Math.min(10000, 1000 * 2 ** (recFailures - 1)) : 0;
+  setTimeout(() => { if (rec === r && mode && !speaking) try { r.start(); } catch (e) {} }, delay);
+}
+function start(m) {
+  stop();
+  if (!SR) return;
+  mode = m;
+  recFailures = 0;
+  rec = new SR();
+  rec.lang = LANGS[m === "listen" ? partner() : my()].rec;
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onresult = (ev) => {
+    recFailures = 0;
+    if (reconnecting) { reconnecting = false; els.notice.hidden = true; }
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) { const t = r[0].transcript.trim(); if (t) pipeline(t, mode); }
+      else interim += r[0].transcript;
+    }
+    if (interim) { els.heard.textContent = interim; els.out.textContent = "…"; }
+  };
+  rec.onerror = (e) => {
+    if (e.error === "no-speech" || e.error === "aborted") return;   // 조용했거나 재생 때문에 끈 경우: 정상
+    const fatal = {
+      "not-allowed": "마이크 권한이 거부되었습니다. 주소창의 마이크 아이콘에서 허용해 주세요.",
+      "service-not-allowed": "이 브라우저에서는 음성 인식을 쓸 수 없습니다. Chrome으로 열거나 직접 입력을 이용하세요.",
+      "audio-capture": "마이크를 찾을 수 없습니다. 마이크나 이어폰 마이크 연결을 확인하세요.",
+      "language-not-supported": `이 브라우저는 ${LANGS[m === "listen" ? partner() : my()].label} 음성 인식을 지원하지 않습니다. 직접 입력을 이용하세요.`,
+    }[e.error];
+    if (fatal) { stop(); showNotice(fatal); return; }
+    // network 같은 일시적 오류: 간격을 늘려 다시 시도하고, 5번 연속 실패하면 멈춘다
+    recFailures++;
+    if (recFailures >= 5) { stop(); showNotice("음성 인식 연결이 계속 실패합니다. 인터넷 연결을 확인한 뒤 버튼을 다시 눌러 주세요."); return; }
+    reconnecting = true;
+    showNotice("음성 인식 연결이 불안정합니다. 다시 연결하는 중…");
+  };
+  // Chrome은 침묵이 길면 인식을 끊으므로, 모드가 켜져 있으면 다시 시작
+  rec.onend = resumeRec;
+  try { rec.start(); } catch (e) {}
+  els.listen.classList.toggle("on", m === "listen");
+  els.speak.classList.toggle("on", m === "speak");
+  els.state.textContent = stateLabel();
+}
+function stop() {
+  mode = null;
+  if (rec) { rec.onend = null; rec.onerror = null; try { rec.abort(); } catch (e) {} rec = null; }
+  speechGen++; speechPending = 0; speaking = false;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if (reconnecting) { reconnecting = false; els.notice.hidden = true; }
+  els.listen.classList.remove("on");
+  els.speak.classList.remove("on");
+  els.state.textContent = "대기 중";
+}
+
+// 아이폰 사파리는 화면을 처음 누를 때 음성 출력을 한 번 깨워 둬야 이후 번역 음성이 자동으로 나온다
+addEventListener("pointerdown", () => {
+  if (!("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(" ");
+  u.volume = 0;
+  speechSynthesis.speak(u);
+}, { once: true });
+
+// 같은 버튼을 다시 누르면 멈춤
+els.listen.addEventListener("click", () => mode === "listen" ? stop() : start("listen"));
+els.speak.addEventListener("click", () => mode === "speak" ? stop() : start("speak"));
+// 입력한 문장이 어느 언어인지 감지해서 방향을 정한다 (내 언어면 말하기, 아니면 듣기)
+async function detectLang(text) {
+  try {
+    const j = await fetchJson(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(text)}`, 4000);
+    return j[2] || null;
+  } catch (e) { return null; }
+}
+const base = (code) => (code || "").toLowerCase().slice(0, 2);
+$("manual").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  // 한글 입력 중 Enter를 누르면 마지막 글자가 늦게 확정되므로 한 박자 기다린 뒤 읽는다
+  await new Promise((r) => setTimeout(r, 0));
+  const input = $("manualText");
+  const t = input.value.trim();
+  if (!t) return;
+  input.value = "";
+  const lang = await detectLang(t);
+  let dir;
+  if (lang && base(lang) === base(my())) dir = "speak";
+  else if (lang && base(lang) === base(partner())) dir = "listen";
+  else dir = /[\uac00-\ud7a3]/.test(t) === (my() === "ko") ? "speak" : "listen";
+  pipeline(t, dir);
+});
+</script>
+</body>
+</html>
