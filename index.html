@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mimi · Ear Translator</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mimi">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -41,6 +49,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* hidden 속성이 display 지정보다 우선하도록 */
 html, body { margin: 0; }
 html { min-height: 100%; background: var(--bg); }
 body {
@@ -65,8 +74,9 @@ body {
 select option { background: #0e121a; color: var(--fg); }
 .wrap {
   pointer-events: none; position: relative; z-index: 1; max-width: 560px; margin: 0 auto;
-  padding-inline: 16px; padding-block: 16px 20px;
-  min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; gap: 12px;
+  padding-inline: 16px;
+  padding-block: calc(16px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-bottom, 0px));
+  height: 100vh; height: 100dvh; display: flex; flex-direction: column; gap: 12px;
 }
 
 .wrap > * { pointer-events: auto; }
@@ -80,7 +90,13 @@ h1 small { font-size: 0.75rem; font-weight: 500; color: var(--on-bg-muted); }
 
 .notice { background: var(--speak-soft); color: var(--fg); padding: 10px 14px; border-radius: 10px; font-size: 0.88rem; }
 
-.settings { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pair { display: flex; align-items: center; gap: 10px; }
+.pair select { flex: 1; }
+.fixed-lang {
+  padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  white-space: nowrap; text-shadow: none; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.pair-arrow { color: var(--on-bg-muted); font-size: 1.1rem; }
 label.field { display: grid; gap: 4px; font-size: 0.78rem; color: var(--on-bg-muted); }
 select {
   font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line);
@@ -108,11 +124,30 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px s
 @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
 
 .live {
-  flex: 1 1 auto; min-height: 132px; overflow-y: auto;
+  flex: 1 1 0; min-height: 132px; overflow-y: auto;   /* 남는 공간만 쓰고, 기록이 넘치면 카드 안에서 스크롤 */
   background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px;
   display: flex; flex-direction: column; justify-content: center; gap: 8px;
 }
-.live .state { font-size: 0.75rem; color: var(--muted); font-family: var(--font-mono); margin-bottom: auto; }
+.live-top {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: -16px -18px auto;
+  padding: 14px 18px 8px; position: sticky; top: -16px; z-index: 1;   /* 기록이 넘쳐 스크롤해도 맨 위에 고정 */
+  background: linear-gradient(rgba(10, 13, 19, 0.96) 75%, rgba(10, 13, 19, 0));
+}
+.live .state { font-size: 0.75rem; color: var(--muted); font-family: var(--font-mono); }
+.big-btn {
+  font: inherit; font-size: 0.75rem; color: var(--fg); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line);
+  border-radius: 999px; padding: 5px 12px; cursor: pointer; white-space: nowrap;
+}
+/* 최근 기록: 지난 문장은 작게, 누르면 크게 보기 */
+.history { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.history li {
+  display: grid; gap: 1px; padding: 6px 10px; border-radius: 10px; border-left: 3px solid var(--listen);
+  background: rgba(255, 255, 255, 0.04); cursor: pointer;
+}
+.history li.speak { border-left-color: var(--speak); }
+.history .src { font-size: 0.72rem; color: var(--muted); overflow-wrap: anywhere; }
+.history .dst { font-size: 0.88rem; color: var(--fg); overflow-wrap: anywhere; }
+.history:empty { display: none; }
 .live::after { content: ""; margin-top: auto; }   /* 상태는 카드 맨 위, 번역 내용은 남은 공간 가운데 */
 .live .heard { color: var(--muted); font-size: 0.95rem; overflow-wrap: anywhere; }
 .live .heard:empty, .live .note:empty { display: none; }
@@ -120,7 +155,32 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px s
 .live .out:empty::before { content: "듣기나 말하기를 누르고 말해 보세요"; font-size: 1rem; font-weight: 400; color: var(--muted); }
 .live.show-partner .out { font-size: clamp(1.9rem, 8vw, 2.6rem); color: var(--speak); }
 .live .note { font-size: 0.8rem; color: var(--listen); overflow-wrap: anywhere; }
+/* 한글 발음: 상대 언어 번역을 내가 직접 따라 말할 수 있게 */
+.live .pron { font-size: 1.05rem; color: var(--fg); overflow-wrap: anywhere; }
+.live .pron::before { content: "발음"; margin-right: 8px; padding: 1px 7px; border-radius: 6px; font-size: 0.7rem; color: var(--speak); border: 1px solid var(--speak); vertical-align: 2px; }
+.live .pron:empty { display: none; }
+.replay { display: flex; gap: 8px; flex-wrap: wrap; }
+.replay button {
+  font: inherit; font-size: 0.8rem; color: var(--fg); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 12px; cursor: pointer;
+}
 
+/* 크게 보기: 번역문만 화면 가득, 마주 앉은 사람을 위해 뒤집기 가능 */
+.showcase {
+  position: fixed; inset: 0; z-index: 10; background: #000; color: var(--fg); display: flex; flex-direction: column;
+  padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+.showcase-body { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 18px; text-align: center; min-height: 0; transition: transform 0.35s; }
+.showcase.flipped .showcase-body { transform: rotate(180deg); }
+.showcase-text { margin: 0; font-size: clamp(2.4rem, 11vw, 4.6rem); font-weight: 700; line-height: 1.25; text-wrap: balance; overflow-wrap: anywhere; }
+.showcase.speak .showcase-text { color: var(--speak); }
+.showcase-src { margin: 0; font-size: 1rem; color: var(--muted); overflow-wrap: anywhere; }
+.showcase-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.showcase-actions button {
+  font: inherit; font-size: 1rem; color: var(--fg); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line);
+  border-radius: 14px; padding: 14px; cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) { .showcase-body { transition: none; } }
 .privacy { margin: -4px 0 0; text-align: center; text-wrap: balance; font-size: 0.68rem; color: var(--on-bg-muted); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
 .manual { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .manual input[type="text"] {
@@ -132,11 +192,21 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px s
   border-radius: 10px; padding: 10px 14px; cursor: pointer; white-space: nowrap;
 }
 
-@media (max-width: 300px) { .settings, .modes { grid-template-columns: 1fr; } }
+@media (max-width: 300px) { .modes { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <canvas class="globe" id="globe" aria-hidden="true"></canvas>
+<div class="showcase" id="showcase" role="dialog" aria-modal="true" aria-label="번역 크게 보기" hidden>
+  <div class="showcase-body">
+    <p class="showcase-text" id="showcaseText"></p>
+    <p class="showcase-src" id="showcaseSrc"></p>
+  </div>
+  <div class="showcase-actions">
+    <button type="button" id="showcaseFlip">뒤집기</button>
+    <button type="button" id="showcaseClose">닫기</button>
+  </div>
+</div>
 <main class="wrap">
   <header>
     <h1>Mimi <small>耳 · Ear Translator</small></h1>
@@ -150,19 +220,29 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px s
   <div class="notice" id="notice" hidden></div>
 
   <section class="settings">
-    <label class="field" for="myLang">내 언어
-      <select id="myLang"></select>
-    </label>
     <label class="field" for="partnerLang">상대방 언어
-      <select id="partnerLang"></select>
+      <span class="pair">
+        <span class="fixed-lang">한국어</span>
+        <span class="pair-arrow" aria-hidden="true">⇄</span>
+        <select id="partnerLang"></select>
+      </span>
     </label>
   </section>
 
   <section class="live" id="live" aria-live="polite">
-    <div class="state" id="state">대기 중</div>
+    <div class="live-top">
+      <span class="state" id="state">대기 중</span>
+      <button class="big-btn" id="btnBig" type="button" hidden>크게 보기</button>
+    </div>
+    <ol class="history" id="history" aria-label="최근 번역"></ol>
     <div class="heard" id="heard"></div>
     <div class="out" id="out"></div>
+    <div class="pron" id="pron"></div>
     <div class="note" id="note"></div>
+    <div class="replay" id="replay" hidden>
+      <button type="button" id="btnReplay">다시 듣기</button>
+      <button type="button" id="btnSlow">천천히 듣기</button>
+    </div>
   </section>
 
   <section class="modes">
@@ -185,6 +265,7 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px s
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="land.js"></script>
+<script src="pron.js"></script>
 <script>
 const LANGS = {
   "ko":    { rec: "ko-KR", label: "한국어", name: "한국어" },
@@ -200,8 +281,8 @@ const LANGS = {
 const TTS_RATE = 1;     // 음성 속도 (1 = 보통, 낮을수록 느리게)
 const $ = (id) => document.getElementById(id);
 const els = {
-  my: $("myLang"), partner: $("partnerLang"), listen: $("btnListen"), speak: $("btnSpeak"),
-  state: $("state"), heard: $("heard"), out: $("out"), note: $("note"), live: $("live"),
+  partner: $("partnerLang"), listen: $("btnListen"), speak: $("btnSpeak"),
+  state: $("state"), heard: $("heard"), out: $("out"), pron: $("pron"), note: $("note"), live: $("live"),
   notice: $("notice"), routeL: $("routeListen"), routeS: $("routeSpeak"),
 };
 
@@ -212,14 +293,14 @@ let speaking = false;     // TTS 재생 중이면 마이크를 잠시 끔 (자�
 
 function showNotice(msg) { els.notice.textContent = msg; els.notice.hidden = false; }
 function partner() { return els.partner.value; }
-function my() { return els.my.value; }
+const MY_LANG = "ko";     // 한국인 여행자용: 내 언어는 한국어로 고정
+function my() { return MY_LANG; }
 
-// 두 언어 선택지 채우기 (기본: 내 언어 한국어, 상대 일본어)
+// 상대방 언어 선택지 채우기 (한국어는 고정이라 빼고, 기본은 일본어)
 for (const [code, l] of Object.entries(LANGS)) {
-  els.my.add(new Option(`${l.name} · ${l.label}`, code));
+  if (code === MY_LANG) continue;
   els.partner.add(new Option(`${l.name} · ${l.label}`, code));
 }
-els.my.value = "ko";
 els.partner.value = "ja";
 
 /* ---------- 지구본 ---------- */
@@ -510,9 +591,7 @@ const globe = (() => {
 function updateMap() {
   const from = AIRPORT[my()], to = AIRPORT[partner()];
   const km = globe.setRoute(from, to);
-  $("globeRoute").textContent = my() === partner()
-    ? from[0]
-    : `${from[0]} → ${to[0]} · ${(km ?? 0).toLocaleString()} km`;
+  $("globeRoute").textContent = `${from[0]} → ${to[0]} · ${(km ?? 0).toLocaleString()} km`;
 }
 // 조작 안내는 처음 5초만 보여주고, 지구본을 만지면 바로 숨긴다
 setTimeout(() => $("globeHint").classList.add("faded"), 5000);
@@ -523,18 +602,14 @@ function updateRoutes() {
   const m = LANGS[my()].label, p = LANGS[partner()].label;
   els.routeL.textContent = `${p} → ${m}`;
   els.routeS.textContent = `${m} → ${p}`;
-  const same = my() === partner();
-  els.listen.disabled = els.speak.disabled = same;
-  if (same) showNotice("내 언어와 상대방 언어가 같습니다. 서로 다른 언어를 골라 주세요.");
-  else if (SR) els.notice.hidden = true;
+  if (SR) els.notice.hidden = true;
 }
 function onLangChange() {
   convo.length = 0;
+  renderHistory(false);
   updateRoutes();
-  if (my() === partner()) stop();   // 버튼이 꺼지는 상태이므로 마이크도 끈다
-  else if (mode) start(mode);
+  if (mode) start(mode);
 }
-els.my.addEventListener("change", onLangChange);
 els.partner.addEventListener("change", onLangChange);
 updateRoutes();
 if (!SR) showNotice("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome으로 열어 주세요.");
@@ -578,7 +653,7 @@ async function translateWithClaude(text, from, to) {
     });
     if (r.ok) {
       const j = await r.json();
-      return j.text ? { text: j.text, engine: "Claude 문맥 번역", note: j.note || "" } : null;
+      return j.text ? { text: j.text, engine: "Claude 문맥 번역", note: j.note || "", pron: j.pronunciation || "" } : null;
     }
     // 404·405·501: 번역 서버가 없는 곳 → 이번 접속 동안 건너뜀 / 503: 키 없음 → 5분 / 그 밖 → 30초
     claudeRetryAt = Date.now() + ([404, 405, 501].includes(r.status) ? Infinity : r.status === 503 ? 300000 : 30000);
@@ -587,19 +662,22 @@ async function translateWithClaude(text, from, to) {
   } finally { clearTimeout(t); }
   return null;
 }
-// 결과를 { text, engine, note } 로 돌려준다 (전역 변수에 담지 않아 동시에 여러 문장이 와도 섞이지 않음)
+// 결과를 { text, engine, note, pron } 로 돌려준다 (전역 변수에 담지 않아 동시에 여러 문장이 와도 섞이지 않음)
 async function translate(text, from, to) {
   const claude = await translateWithClaude(text, from, to);
   if (claude) return claude;
   try {
-    const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+    // dt=rm: 번역문의 로마자 표기도 함께 받는다 (일본어·중국어는 한글 발음으로 바꿀 수 있음)
+    const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&dt=rm&q=${encodeURIComponent(text)}`;
     const j = await fetchJson(u);
-    const out = j[0].map((s) => s[0]).join("");
-    if (out) return { text: out, engine: "기본 번역", note: "" };
+    const out = j[0].filter((s) => s[0]).map((s) => s[0]).join("");
+    const roman = j[0].filter((s) => s[0] === null && s[2]).map((s) => s[2]).join(" ");
+    const pron = to === MY_LANG || !window.MimiPron ? "" : MimiPron.toHangul(to, roman);
+    if (out) return { text: out, engine: "기본 번역", note: "", pron };
   } catch (e) { /* 대체 엔진으로 */ }
   const u2 = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
   const j2 = await fetchJson(u2);
-  return { text: j2.responseData.translatedText, engine: "기본 번역", note: "" };
+  return { text: j2.responseData.translatedText, engine: "기본 번역", note: "", pron: "" };
 }
 
 /* ---------- 음성 출력 ---------- */
@@ -610,7 +688,7 @@ function pickVoice(lang) {
 // 번역 음성은 앞 문장을 끊지 않고 차례로 재생한다. 남은 음성이 0개가 될 때만 마이크를 다시 켠다
 let speechPending = 0;
 let speechGen = 0;        // stop() 할 때마다 바뀜: 멈추기 전에 넣은 음성의 끝 신호는 무시
-function speak(text, lang) {
+function speak(text, lang, rate = TTS_RATE) {
   if (!("speechSynthesis" in window)) return Promise.resolve();
   const gen = speechGen;
   speechPending++;
@@ -619,11 +697,11 @@ function speak(text, lang) {
   return new Promise((resolve) => {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
-    u.rate = TTS_RATE;
+    u.rate = rate;
     const v = pickVoice(lang); if (v) u.voice = v;
     // 일부 브라우저는 끝 신호를 빠뜨리므로, 재생이 시작되고 충분히 지나면 끝난 것으로 본다
     let guard = setTimeout(resolve, 60000);
-    u.onstart = () => { clearTimeout(guard); guard = setTimeout(resolve, 3000 + text.length * 250 / TTS_RATE); };
+    u.onstart = () => { clearTimeout(guard); guard = setTimeout(resolve, 3000 + text.length * 250 / rate); };
     u.onend = u.onerror = () => { clearTimeout(guard); resolve(); };
     speechSynthesis.speak(u);
   }).finally(() => {
@@ -646,22 +724,73 @@ function pipeline(text, dir) {
   const job = translate(text, from, to);
   job.catch(() => {});   // 차례를 기다리는 동안 '처리되지 않은 오류' 경고가 뜨지 않게
   outputChain = outputChain.then(async () => {
+    renderHistory(false);   // 화면에 있던 문장은 최근 기록으로 올린다
     els.heard.textContent = text;
     els.out.textContent = "번역 중…";
     els.note.textContent = "";
+    els.pron.textContent = "";
     els.live.classList.toggle("show-partner", dir === "speak");
     let r;
     try { r = await job; }
     catch (e) { els.out.textContent = "번역 실패: 네트워크 연결을 확인하세요."; return; }
     els.out.textContent = r.text;
     els.note.textContent = r.note;
+    els.pron.textContent = r.pron || "";
     convo.push({ who: dir === "listen" ? "partner" : "me", text, translation: r.text });
     if (convo.length > 8) convo.shift();
+    renderHistory(true);
+    current = { text: r.text, src: text, speak: dir === "speak", lang: to, pron: r.pron || "" };
+    $("replay").hidden = false;
+    $("btnBig").hidden = false;
     els.state.textContent = `${r.engine} · 음성 재생 중`;
     speak(r.text, LANGS[to].rec);   // 기다리지 않음: 음성은 재생 순서대로 이어서 나온다
   });
   return outputChain;
 }
+
+/* ---------- 최근 기록 · 크게 보기 ---------- */
+let current = null;       // 지금 화면 가운데에 있는 번역 { text, src, speak }
+// 지난 번역 최대 4개를 작게 보여준다 (skipLast: 마지막 것은 지금 크게 보이는 문장이라 뺀다)
+function renderHistory(skipLast) {
+  const list = $("history");
+  const past = (skipLast ? convo.slice(0, -1) : convo.slice()).slice(-4);
+  list.replaceChildren(...past.map((h) => {
+    const li = document.createElement("li");
+    if (h.who === "me") li.className = "speak";
+    const src = document.createElement("span"); src.className = "src"; src.textContent = h.text;
+    const dst = document.createElement("span"); dst.className = "dst"; dst.textContent = h.translation;
+    li.append(src, dst);
+    li.addEventListener("click", () => openShowcase({ text: h.translation, src: h.text, speak: h.who === "me" }));
+    return li;
+  }));
+  els.live.scrollTop = els.live.scrollHeight;   // 기록이 쌓여 넘치면 가장 최근 문장이 보이게
+}
+let flipped = false;      // 크게 보기는 항상 똑바로 열고, 뒤집기는 그때만 적용
+// 다시 듣기: 원어민 발음으로 한 번 더, 천천히 듣기: 따라 말하기 쉽게 느리게
+$("btnReplay").addEventListener("click", () => { if (current) speak(current.text, LANGS[current.lang].rec); });
+$("btnSlow").addEventListener("click", () => { if (current) speak(current.text, LANGS[current.lang].rec, 0.65); });
+function openShowcase(item) {
+  if (!item) return;
+  const box = $("showcase");
+  $("showcaseText").textContent = item.text;
+  $("showcaseSrc").textContent = item.src;
+  // 긴 문장은 글자를 줄여 한 화면에 들어가게
+  const len = item.text.length;
+  $("showcaseText").style.fontSize = len > 70 ? "1.8rem" : len > 40 ? "2.3rem" : len > 20 ? "3rem" : "";
+  box.classList.toggle("speak", item.speak);
+  flipped = false;
+  box.classList.remove("flipped");
+  box.hidden = false;
+  $("showcaseClose").focus();
+}
+function closeShowcase() { $("showcase").hidden = true; $("btnBig").focus(); }
+$("btnBig").addEventListener("click", () => openShowcase(current));
+$("showcaseClose").addEventListener("click", closeShowcase);
+$("showcaseFlip").addEventListener("click", () => {
+  flipped = !flipped;
+  $("showcase").classList.toggle("flipped", flipped);
+});
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("showcase").hidden) closeShowcase(); });
 
 /* ---------- 음성 인식 ---------- */
 let recFailures = 0;      // 연속 연결 오류 횟수 (다시 켜는 간격을 늘리는 데 사용)

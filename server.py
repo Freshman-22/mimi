@@ -26,15 +26,17 @@ Before translating, think about the situation from the conversation so far: wher
 - keep the meaning, intent and emotion, and keep it about as short as the original.
 
 The translation contains only what the speaker said: no explanations, quotes, romanization or alternatives.
-The note is one short phrase in {note_lang} for the traveler, naming the situation you inferred and the tone you chose, like "식당 · 계산 요청 → 직원에게 공손하게". If there is no clue yet, say so briefly."""
+The note is one short phrase in {note_lang} for the traveler, naming the situation you inferred and the tone you chose, like "식당 · 계산 요청 → 직원에게 공손하게". If there is no clue yet, say so briefly.
+The pronunciation is for the traveler to say the translation aloud themselves: write the translation's sound in {note_lang} script, as close to the native pronunciation as that script allows (for Korean, Hangul syllables such as トイレはどこですか → 토이레와 도코데스카, Where is the restroom? → 웨어 이즈 더 레스트룸?). Use an empty string when the translation is already in {note_lang}."""
 
 SCHEMA = {
     "type": "object",
     "properties": {
         "translation": {"type": "string"},
         "note": {"type": "string"},
+        "pronunciation": {"type": "string"},
     },
-    "required": ["translation", "note"],
+    "required": ["translation", "note", "pronunciation"],
     "additionalProperties": False,
 }
 
@@ -77,14 +79,19 @@ def translate(text, src, dst, me, history):
     if response.stop_reason == "refusal":
         raise RuntimeError("refused")
     data = json.loads(next(b.text for b in response.content if b.type == "text"))
-    return data["translation"].strip(), data["note"].strip()
+    return data["translation"].strip(), data["note"].strip(), data["pronunciation"].strip()
 
 
 # 외부(휴대폰, 터널)에서 접속해도 화면에 필요한 파일만 보여준다. server.py, 백업 파일 등은 숨김
-PUBLIC_FILES = {"/": "/index.html", "/index.html": "/index.html", "/land.js": "/land.js"}
+PUBLIC_FILES = {"/": "/index.html", "/index.html": "/index.html", "/land.js": "/land.js", "/pron.js": "/pron.js",
+                "/manifest.webmanifest": "/manifest.webmanifest",
+                "/icon-180.png": "/icon-180.png", "/icon-192.png": "/icon-192.png", "/icon-512.png": "/icon-512.png"}
 
 
 class Handler(SimpleHTTPRequestHandler):
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".webmanifest": "application/manifest+json",
+                      ".js": "text/javascript; charset=utf-8", ".html": "text/html; charset=utf-8"}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
 
@@ -135,8 +142,8 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, KeyError, AttributeError):
             return self.send_json(400, {"error": "bad request"})
         try:
-            out, note = translate(text, src, dst, me, history if isinstance(history, list) else [])
-            return self.send_json(200, {"text": out, "note": note, "engine": "claude"})
+            out, note, pron = translate(text, src, dst, me, history if isinstance(history, list) else [])
+            return self.send_json(200, {"text": out, "note": note, "pronunciation": pron, "engine": "claude"})
         except anthropic.AuthenticationError:
             return self.send_json(503, {"error": "API 키가 올바르지 않습니다"})
         except anthropic.APIStatusError as e:

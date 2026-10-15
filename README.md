@@ -10,6 +10,8 @@
 |---|---|
 | `index.html` | 화면 전체 (음성 인식, 번역, 지구본) |
 | `land.js` | 지구본 육지 데이터 (Natural Earth, 퍼블릭 도메인) |
+| `pron.js` | 일본어 로마자·중국어 병음 → 한글 발음 변환 |
+| `manifest.webmanifest`, `icon-*.png` | 홈 화면에 추가했을 때 앱 이름·아이콘 |
 | `server.py` | 화면을 띄우고 Claude 문맥 번역을 제공하는 로컬 서버 |
 | `requirements.txt` | 서버에 필요한 파이썬 패키지 |
 | `backup.command` | 더블클릭하면 바탕화면에 백업 압축 파일을 만듦 |
